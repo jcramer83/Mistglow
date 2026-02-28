@@ -6,9 +6,13 @@ A native macOS app that streams your screen and audio to a [MiSTer FPGA](https:/
 
 Mistglow captures your display at low resolution (240p/480i/480p) and sends it over UDP to your MiSTer, which outputs it as a real analog signal through the FPGA's video DAC. Perfect for playing modern games on a CRT, streaming retro-styled content, or just sending your Mac's screen to a vintage display.
 
-## Acknowledgments
+## Standing on the Shoulders of Giants
 
-Mistglow is a macOS port inspired by the original Windows **MiSTerCast** application by **[psakhis](https://github.com/psakhis)**. The Windows version is part of the [Groovy_MiSTer](https://github.com/psakhis/Groovy_MiSTer) project, which pioneered streaming video to MiSTer FPGA over the Groovy protocol. This project wouldn't exist without that foundational work.
+Mistglow is a native macOS reimplementation of **[MiSTerCast](https://github.com/psakhis/Groovy_MiSTer)**, the original Windows streaming application created by **[psakhis](https://github.com/psakhis)**. All credit for the concept, the Groovy protocol, the MiSTer FPGA core, and the vision of streaming video to real CRT displays belongs to psakhis and the Groovy_MiSTer project.
+
+The Windows MiSTerCast application did all the hard work -- designing the protocol, building the FPGA core, and proving that low-latency UDP streaming to a MiSTer was not only possible but practical. Mistglow simply brings that same experience to Mac users who wanted to join the party. If you're on Windows, use the original -- it's the real deal.
+
+Thank you psakhis for making this possible and for sharing your work with the community.
 
 ## Features
 
