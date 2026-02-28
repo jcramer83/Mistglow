@@ -8,11 +8,13 @@ Mistglow captures your display at low resolution (240p/480i/480p) and sends it o
 
 ## Standing on the Shoulders of Giants
 
-Mistglow is a native macOS reimplementation of **[MiSTerCast](https://github.com/psakhis/Groovy_MiSTer)**, the original Windows streaming application created by **[psakhis](https://github.com/psakhis)**. All credit for the concept, the Groovy protocol, the MiSTer FPGA core, and the vision of streaming video to real CRT displays belongs to psakhis and the Groovy_MiSTer project.
+Mistglow is a native macOS reimplementation of **[MiSTerCast](https://github.com/iequalshane/MiSTerCast)**, the original Windows streaming application created by **[iequalshane](https://github.com/iequalshane)** and **[sonic74](https://github.com/sonic74)**. The Windows MiSTerCast is a C++/C# application that streams your PC screen to MiSTer over the Groovy protocol -- it did all the hard work of figuring out the protocol, frame timing, modeline handling, and proving that low-latency UDP streaming to a MiSTer was practical.
 
-The Windows MiSTerCast application did all the hard work -- designing the protocol, building the FPGA core, and proving that low-latency UDP streaming to a MiSTer was not only possible but practical. Mistglow simply brings that same experience to Mac users who wanted to join the party. If you're on Windows, use the original -- it's the real deal.
+The Groovy protocol itself and the **Groovy_MiSTer** FPGA core were created by **[psakhis](https://github.com/psakhis)**, who built the entire system for streaming video to MiSTer FPGA with extremely low latency (~3ms). The core handles dynamic mode switching, LZ4 decompression on the FPGA, and real analog video output.
 
-Thank you psakhis for making this possible and for sharing your work with the community.
+Mistglow simply brings that same MiSTerCast experience to Mac users. If you're on Windows, use the [original MiSTerCast](https://github.com/iequalshane/MiSTerCast) -- it's the real deal.
+
+Thank you to psakhis, iequalshane, and sonic74 for making this possible and sharing your work with the community.
 
 ## Features
 
@@ -28,18 +30,71 @@ Thank you psakhis for making this possible and for sharing your work with the co
 
 ## Requirements
 
+### On your Mac
 - macOS 14 (Sonoma) or later
-- A MiSTer FPGA running the Groovy_MiSTer core
-- Both devices on the same network
+- Both devices on the same local network (direct ethernet recommended for best performance)
+- Set your display to ~60Hz (high refresh rate monitors are not supported)
 
-## Permissions
+### On your MiSTer FPGA
 
-Mistglow requires the following macOS permissions:
+**Groovy_MiSTer must be installed and running before Mistglow can connect.** Follow the [Groovy_MiSTer setup guide](https://github.com/psakhis/Groovy_MiSTer) to get it working:
 
-- **Screen Recording** - to capture your display for streaming
-- **Microphone / Audio** - to capture system audio (uses ScreenCaptureKit)
+1. Copy `MiSTer_groovy` binary to `/media/fat` on your MiSTer
+2. Copy `Groovy.rbf` to `/media/fat/_Utility`
+3. Add to your `MiSTer.ini`:
+   ```ini
+   [Groovy]
+   main=MiSTer_groovy
+   ```
+4. Launch the **Groovy** core from the MiSTer menu (under Utility)
+5. The core will wait for an incoming connection
 
-On first launch, macOS will prompt you to grant these permissions. You can also manage them in **System Settings > Privacy & Security > Screen Recording**.
+> **Tip:** It's recommended to verify Groovy_MiSTer is working with [GroovyMAME](https://github.com/psakhis/Groovy_MiSTer) on a Windows or Linux PC first before using Mistglow, to confirm your network and MiSTer setup are correct.
+
+### Audio
+
+To stream audio, you must enable audio on the Groovy_MiSTer core (via the MiSTer OSD menu while the core is running).
+
+## macOS Permissions
+
+Mistglow requires the following permissions:
+
+- **Screen Recording** -- to capture your display for streaming
+- **Microphone / Audio** -- to capture system audio (uses ScreenCaptureKit)
+
+On first launch, macOS will prompt you to grant these. You can manage them anytime in **System Settings > Privacy & Security > Screen Recording**. There's also a Permissions info button in the app that shows the current status and links directly to System Settings.
+
+## Quick Start
+
+1. **Start the Groovy core** on your MiSTer FPGA (Utility > Groovy)
+2. Open **Mistglow** on your Mac
+3. Enter your MiSTer's **IP address** (or hostname `MiSTer` if mDNS is set up)
+4. Select a **modeline preset** matching your desired output (e.g., 320x240 NTSC)
+5. Go to the **Capture tab** to configure display source and crop settings
+6. Click **Start Streaming**
+
+## Known Limitations
+
+- Frames may be dropped or doubled due to sync with the video signal
+- Expect 1-2 frames of minimum latency
+- Maximum recommended resolution is **720x480i** (network throughput limitation)
+- High refresh rate monitors (120Hz+) are not supported -- set your display to ~60Hz
+- If the app crashes during streaming, you may need to restart the Groovy core on MiSTer
+
+## Modelines
+
+Mistglow ships with preset modelines for common resolutions:
+
+| Preset | Resolution | Standard |
+|--------|-----------|----------|
+| 256x240 | 256x240p | NTSC / PAL |
+| 320x240 | 320x240p | NTSC / PAL |
+| 320x480i | 320x480i | NTSC / PAL |
+| 640x480i | 640x480i | NTSC / PAL |
+| 720x480i | 720x480i | NTSC |
+| 720x576i | 720x576i | PAL |
+
+Custom modelines can be defined in `modelines.dat`. For best synchronization, match your Mac's refresh rate to the modeline. Additional modeline examples: [geocities.ws/podernixie/htpc/modes-en.html](https://www.geocities.ws/podernixie/htpc/modes-en.html)
 
 ## Building from Source
 
@@ -51,7 +106,6 @@ On first launch, macOS will prompt you to grant these permissions. You can also 
 ### Build & Run
 
 ```bash
-# Clone the repository
 git clone https://github.com/YOUR_USERNAME/Mistglow.git
 cd Mistglow
 
@@ -71,14 +125,6 @@ The `build.sh` script handles building, code signing, and installing to `/Applic
 chmod +x build.sh
 ./build.sh
 ```
-
-## Quick Start
-
-1. Start the **Groovy_MiSTer** core on your MiSTer FPGA
-2. Open Mistglow and enter your MiSTer's IP address (or hostname)
-3. Select a modeline preset matching your desired output
-4. Configure capture source and crop settings in the Capture tab
-5. Click **Start Streaming**
 
 ## Protocol
 
