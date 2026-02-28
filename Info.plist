@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Mistglow</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mistglow.macos</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Mistglow needs screen capture access to stream your display to MiSTer FPGA.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Mistglow needs audio access to stream system audio to MiSTer FPGA.</string>
+</dict>
+</plist>
