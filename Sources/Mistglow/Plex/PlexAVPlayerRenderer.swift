@@ -227,30 +227,33 @@ final class PlexAVPlayerRenderer: @unchecked Sendable {
             return
         }
 
-        // Background thread: reads video frames, atomically swaps latest
-        let fh = videoPipe.fileHandleForReading
+        // Background thread: reads video frames via POSIX read() into a pre-allocated
+        // buffer. No FileHandle, no autoreleased NSData, no Data COW copies.
+        let fd = videoPipe.fileHandleForReading.fileDescriptor
         let frameSize = outputWidth * outputHeight * 3
         let generation = _seekGeneration
         Thread.detachNewThread { [weak self] in
-            var buffer = Data()
-            buffer.reserveCapacity(frameSize * 2)
+            // Two frame buffers: fill one while the other is in use by StreamEngine
+            let rawBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: frameSize)
+            defer { rawBuf.deallocate() }
+            var filled = 0
 
             while let self = self, self.isRunning, self._seekGeneration == generation {
-                let needed = frameSize - buffer.count
-                let chunk = fh.readData(ofLength: needed)
-                if chunk.isEmpty {
+                let needed = frameSize - filled
+                let n = Darwin.read(fd, rawBuf + filled, needed)
+                if n <= 0 {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.isRunning, self._seekGeneration == generation else { return }
                         self.isRunning = false
                         self.onPlaybackEnded?()
                     }
-                    return
+                    break
                 }
-                buffer.append(chunk)
+                filled += n
 
-                if buffer.count >= frameSize {
-                    let frame = Data(buffer.prefix(frameSize))
-                    buffer = Data(buffer.dropFirst(frameSize))
+                if filled >= frameSize {
+                    let frame = Data(bytes: rawBuf, count: frameSize)
+                    filled = 0
 
                     self.frameLock.lock()
                     self._latestFrame = frame
@@ -305,19 +308,23 @@ final class PlexAVPlayerRenderer: @unchecked Sendable {
             return
         }
 
-        // Read PCM data and feed to StreamEngine
-        // Gate on first video frame + discard extra ~75ms to compensate for decode lag
-        let audioFH = audioPipe.fileHandleForReading
+        // Read PCM data via POSIX read() and feed to StreamEngine
+        // Gate on first video frame + discard extra audio to compensate for decode lag
+        let audioFD = audioPipe.fileHandleForReading.fileDescriptor
         let generation = _seekGeneration
         let thread = Thread { [weak self] in
+            let chunkSize = 4800 // ~25ms of 48kHz stereo 16-bit
+            let rawBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+            defer { rawBuf.deallocate() }
+
             // Phase 1: Discard audio until the first video frame arrives
             while let self = self, self.isRunning, self._seekGeneration == generation {
                 self.frameLock.lock()
                 let ready = self._firstVideoFrameReceived
                 self.frameLock.unlock()
                 if ready { break }
-                let discard = audioFH.readData(ofLength: 3840) // ~20ms
-                if discard.isEmpty { return }
+                let n = Darwin.read(audioFD, rawBuf, 3840)
+                if n <= 0 { return }
             }
 
             // Phase 2: Discard ~300ms more audio to align with video decode latency
@@ -325,17 +332,17 @@ final class PlexAVPlayerRenderer: @unchecked Sendable {
             var discarded = 0
             while discarded < 57600, let self = self, self.isRunning, self._seekGeneration == generation {
                 let remain = min(3840, 57600 - discarded)
-                let discard = audioFH.readData(ofLength: remain)
-                if discard.isEmpty { return }
-                discarded += discard.count
+                let n = Darwin.read(audioFD, rawBuf, remain)
+                if n <= 0 { return }
+                discarded += n
             }
 
             // Phase 3: Feed audio to StreamEngine
-            // Use 4800 bytes (~25ms) — small enough for low latency, large enough to avoid jitter
             while let self = self, self.isRunning, self._seekGeneration == generation {
-                let chunk = audioFH.readData(ofLength: 4800)
-                if chunk.isEmpty { break }
-                self.onAudioData?(chunk)
+                let n = Darwin.read(audioFD, rawBuf, chunkSize)
+                if n <= 0 { break }
+                let pcm = Data(bytes: rawBuf, count: n)
+                self.onAudioData?(pcm)
             }
         }
         thread.qualityOfService = .userInteractive

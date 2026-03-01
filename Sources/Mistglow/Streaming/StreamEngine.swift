@@ -13,6 +13,7 @@ final class StreamEngine: NSObject, @unchecked Sendable {
     private var currentField: UInt8 = 0
     private let sendQueue = DispatchQueue(label: "com.mistglow.stream", qos: .userInteractive)
     private var isSending = false
+    private let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
 
     // Audio
     private var scStream: SCStream?
@@ -260,6 +261,23 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         guard isRunning, let connection, !isSending else { return }
         isSending = true
         defer { isSending = false }
+        autoreleasepool {
+        _captureAndSendInner(
+            displayID: displayID, modeline: modeline, connection: connection,
+            outW: outW, fieldH: fieldH, fullH: fullH,
+            cropW: cropW, cropH: cropH, cropX: cropX, cropY: cropY,
+            rotation: rotation, isInterlaced: isInterlaced
+        )
+        }
+    }
+
+    private func _captureAndSendInner(
+        displayID: CGDirectDisplayID, modeline: Modeline, connection: GroovyConnection,
+        outW: Int, fieldH: Int, fullH: Int,
+        cropW: Int, cropH: Int,
+        cropX: Int, cropY: Int,
+        rotation: Rotation, isInterlaced: Bool
+    ) {
 
         let fieldData: Data
         let field: UInt8
@@ -373,6 +391,7 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         if frameCount == 5 || frameCount % 1800 == 0 {
             NSLog("Frame %d (%dB, field=%d)", frameCount, fieldData.count, field)
         }
+
     }
 
     // MARK: - Stop
@@ -445,10 +464,9 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         }
 
         let bytesPerRow = outW * 4
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
             data: nil, width: outW, height: outH,
-            bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: colorSpace,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: rgbColorSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return Data() }
 

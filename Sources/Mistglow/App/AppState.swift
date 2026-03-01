@@ -54,12 +54,20 @@ final class AppState {
     var previewCapture: PreviewCapture?
     var plexController: PlexPlaybackController?
 
+    private static let maxLogEntries = 2000
+
     func log(_ message: String) {
         logEntries.append(LogEntry(message))
+        if logEntries.count > Self.maxLogEntries {
+            logEntries.removeFirst(logEntries.count - Self.maxLogEntries)
+        }
     }
 
     func logError(_ message: String) {
         logEntries.append(LogEntry(message, isError: true))
+        if logEntries.count > Self.maxLogEntries {
+            logEntries.removeFirst(logEntries.count - Self.maxLogEntries)
+        }
     }
 
     func applyPreset(_ index: Int) {

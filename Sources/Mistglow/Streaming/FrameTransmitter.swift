@@ -68,8 +68,13 @@ actor FrameTransmitter {
         var offset = 0
         while offset < data.count {
             let end = min(offset + mtu, data.count)
-            let chunk = data[offset..<end]
-            await connection.send(Data(chunk))
+            let chunk = Data(data[offset..<end])
+            let isLast = end >= data.count
+            if isLast {
+                connection.sendSync(chunk)
+            } else {
+                connection.send(chunk)
+            }
             offset = end
         }
     }
