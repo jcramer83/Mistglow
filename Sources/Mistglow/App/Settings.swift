@@ -62,7 +62,7 @@ enum CropMode: String, Codable, CaseIterable {
 
 struct AppSettings: Codable {
     var targetIP: String = "MiSTer"
-    var modeline: Modeline = Modeline.presets[1] // 320x240 NTSC (progressive)
+    var modeline: Modeline = Modeline.presets[3] // 640x480i NTSC
     var displayIndex: Int = 1
     var alignment: Alignment = .center
     var rotation: Rotation = .none
@@ -73,6 +73,8 @@ struct AppSettings: Codable {
     var cropHeight: Int = 0
     var cropOffsetX: Int = 0
     var cropOffsetY: Int = 0
+    var plexEnabled: Bool = false
+    var plexResourceIdentifier: String = UUID().uuidString
 
     private static var fileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

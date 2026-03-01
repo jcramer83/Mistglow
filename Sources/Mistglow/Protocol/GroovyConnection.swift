@@ -68,6 +68,7 @@ final class GroovyConnection: @unchecked Sendable {
         }
     }
 
+
     func disconnect() {
         connection?.cancel()
         connection = nil

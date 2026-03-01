@@ -18,12 +18,40 @@ final class StreamEngine: NSObject, @unchecked Sendable {
     private var scStream: SCStream?
     private var audioEnabled = false
     private let audioQueue = DispatchQueue(label: "com.mistglow.audio", qos: .userInteractive)
-    private var pendingAudio: Data?
+    private var pendingAudio = Data()
     private let audioLock = NSLock()
     private var audioFormatLogged = false
+    private var audioSamplesReceived: Int = 0
+    private var audioBytesSent: Int = 0
+    private var audioPacketsSent: Int = 0
+    private var audioLastCallbackTime: UInt64 = 0
+    private var audioDisplayIndex: Int = 0
+    private var audioSendTimer: DispatchSourceTimer?
+    // FPGA audio buffer is 32768 bytes. Cap at ~half to avoid overflow.
+    private let maxAudioBuffer = 16000
+    // Send lock to prevent video and audio from interleaving on the wire
+    private let wireLock = NSLock()
 
     // Interlaced: cache fields from one capture
     private var cachedField1: Data?
+
+    /// External frame source (e.g. Plex FFmpeg). Returns raw RGB24 data at target resolution.
+    /// When set, used instead of CGDisplayCreateImage — bypasses crop/scale/rotation.
+    var externalFrameSourceRGB24: (() -> Data?)?
+
+    /// External frame source as CGImage (legacy). When set, used instead of CGDisplayCreateImage.
+    var externalFrameSource: (() -> CGImage?)?
+
+    /// Feed external audio PCM data (signed 16-bit LE, 48kHz stereo) into the send buffer.
+    /// Used by Plex renderer to route audio to MiSTer instead of local speakers.
+    func feedExternalAudio(_ pcm: Data) {
+        guard audioEnabled else { return }
+        audioLock.lock()
+        if pendingAudio.count < maxAudioBuffer {
+            pendingAudio.append(pcm)
+        }
+        audioLock.unlock()
+    }
 
     init(appState: AppState) {
         self.appState = appState
@@ -71,14 +99,11 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         let outW = Int(m.hActive)
         let fullH = Int(m.vActive) // Full frame height (for interlaced capture)
 
-        if m.interlace {
-            await appState.log("Output: \(outW)x\(fullH) -> \(outW)x\(fieldH) per field, \(outW * fieldH * 3) bytes/field")
-        } else {
-            await appState.log("Output: \(outW)x\(fieldH), \(outW * fieldH * 3) bytes/frame")
-        }
+        NSLog("Output: %dx%d%@", outW, Int(m.vActive), m.interlace ? "i" : "p")
 
         // Start audio capture via ScreenCaptureKit if enabled
-        if audioEnabled {
+        // Skip when external frame source is set (Plex feeds audio directly via feedExternalAudio)
+        if audioEnabled && externalFrameSourceRGB24 == nil {
             await startAudioCapture(displayIndex: settings.displayIndex)
         }
 
@@ -98,8 +123,8 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         // We need to send fields at 2x that rate (~60fps).
         let frameRate = Double(m.pClock) * 1_000_000.0 / (Double(m.hTotal) * Double(m.vTotal))
         let fieldRate = m.interlace ? frameRate * 2.0 : frameRate
-        let intervalMs = max(8, Int(1000.0 / fieldRate))
-        await appState.log("Capture: \(String(format: "%.1f", fieldRate)) \(m.interlace ? "fields" : "fps")/s, \(intervalMs)ms interval")
+        let intervalUs = max(8000, Int(1_000_000.0 / fieldRate))
+        NSLog("Capture: %.2f %@/s", fieldRate, m.interlace ? "fields" : "fps")
 
         let cropW = settings.cropWidth
         let cropH = settings.cropHeight
@@ -107,13 +132,13 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         let cropY = settings.cropOffsetY
         let rotation = settings.rotation
         if cropW > 0 && cropH > 0 {
-            await appState.log("Crop: \(cropW)x\(cropH) at (\(cropX),\(cropY)), rotation=\(rotation.displayName)")
+            NSLog("Crop: %dx%d at (%d,%d)", cropW, cropH, cropX, cropY)
         }
 
         // Start capture+send loop
         let isInterlaced = m.interlace
         let timer = DispatchSource.makeTimerSource(queue: sendQueue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(intervalMs))
+        timer.schedule(deadline: .now(), repeating: .microseconds(intervalUs))
         timer.setEventHandler { [weak self] in
             self?.captureAndSend(
                 displayID: displayID, modeline: modeline,
@@ -125,11 +150,53 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         }
         timer.resume()
         self.captureTimer = timer
+
+        // Start independent audio send timer (~every 20ms = 50Hz)
+        // Runs on audioQueue (separate from video sendQueue) so audio doesn't stall when frame capture is slow
+        if audioEnabled {
+            let audioTimer = DispatchSource.makeTimerSource(queue: audioQueue)
+            audioTimer.schedule(deadline: .now() + .milliseconds(20), repeating: .milliseconds(10))
+            audioTimer.setEventHandler { [weak self] in
+                self?.sendPendingAudio()
+            }
+            audioTimer.resume()
+            self.audioSendTimer = audioTimer
+            NSLog("Audio send timer: 10ms interval")
+        }
+    }
+
+    // MARK: - Audio Send (independent timer)
+
+    private func sendPendingAudio() {
+        guard isRunning, audioEnabled, let connection else { return }
+
+        audioLock.lock()
+        let audio = pendingAudio
+        pendingAudio = Data()
+        audioLock.unlock()
+
+        guard !audio.isEmpty else { return }
+
+        // Acquire wire lock so we don't interleave with a video blit in progress
+        wireLock.lock()
+        defer { wireLock.unlock() }
+
+        let size = min(Int(UInt16.max), audio.count)
+        let audioHeader = GroovyProtocol.buildAudio(size: UInt16(size))
+        connection.sendFrame(header: audioHeader, payload: audio.prefix(size))
+        audioPacketsSent += 1
+        audioBytesSent += size
+
+        // Periodic audio stats logged via NSLog to avoid flooding UI
+        if audioPacketsSent == 5 || audioPacketsSent % 1000 == 0 {
+            NSLog("Audio sent #%d: %dB total", audioPacketsSent, audioBytesSent)
+        }
     }
 
     // MARK: - Audio Capture
 
     private func startAudioCapture(displayIndex: Int) async {
+        self.audioDisplayIndex = displayIndex
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard !content.displays.isEmpty else {
@@ -145,20 +212,39 @@ final class StreamEngine: NSObject, @unchecked Sendable {
             config.height = 2
             config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
             config.pixelFormat = kCVPixelFormatType_32BGRA
-            config.queueDepth = 1
+            config.queueDepth = 5
             config.capturesAudio = true
             config.sampleRate = 48000
             config.channelCount = 2
             config.excludesCurrentProcessAudio = true
 
-            let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+            let stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: audioQueue)
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
             try await stream.startCapture()
             self.scStream = stream
-            await appState.log("Audio capture started (48kHz stereo)")
+            self.audioFormatLogged = false
+            NSLog("Audio capture started")
         } catch {
             await appState.logError("Audio capture failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Restart audio capture after an error
+    private func restartAudioCapture() {
+        guard isRunning, audioEnabled else { return }
+        let idx = audioDisplayIndex
+        NSLog("Audio: restarting capture...")
+        // Stop old stream
+        if let stream = scStream {
+            scStream = nil
+            Task {
+                try? await stream.stopCapture()
+                // Brief delay before restart
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard self.isRunning else { return }
+                await self.startAudioCapture(displayIndex: idx)
+            }
         }
     }
 
@@ -181,15 +267,30 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         if isInterlaced {
             // Interlaced: on field 0, capture full frame and split into even/odd fields
             // On field 1, use the cached odd field from the same capture
-            if currentField == 0 {
-                guard let screenshot = CGDisplayCreateImage(displayID) else { return }
 
-                // Render to full frame height (e.g. 480 lines)
-                let fullRGB = convertToRGB24(
-                    image: screenshot, outW: outW, outH: fullH,
-                    cropX: cropX, cropY: cropY, cropW: cropW, cropH: cropH,
-                    rotation: rotation
-                )
+            if currentField == 0 {
+                let fullRGB: Data
+
+                // Check external RGB24 source first (Plex FFmpeg — already at target resolution)
+                if let source = externalFrameSourceRGB24 {
+                    guard let rgb = source() else { return }
+                    fullRGB = rgb
+                } else if let source = externalFrameSource {
+                    guard let frame = source() else { return }
+                    fullRGB = convertToRGB24(
+                        image: frame, outW: outW, outH: fullH,
+                        cropX: cropX, cropY: cropY, cropW: cropW, cropH: cropH,
+                        rotation: rotation
+                    )
+                } else {
+                    // Screen capture path
+                    guard let frame = CGDisplayCreateImage(displayID) else { return }
+                    fullRGB = convertToRGB24(
+                        image: frame, outW: outW, outH: fullH,
+                        cropX: cropX, cropY: cropY, cropW: cropW, cropH: cropH,
+                        rotation: rotation
+                    )
+                }
                 guard fullRGB.count == outW * fullH * 3 else { return }
 
                 // Split into even (field 0) and odd (field 1) scanlines
@@ -229,13 +330,26 @@ final class StreamEngine: NSObject, @unchecked Sendable {
             }
         } else {
             // Progressive: capture and send full frame
-            guard let screenshot = CGDisplayCreateImage(displayID) else { return }
+            let rgb: Data
 
-            let rgb = convertToRGB24(
-                image: screenshot, outW: outW, outH: fieldH,
-                cropX: cropX, cropY: cropY, cropW: cropW, cropH: cropH,
-                rotation: rotation
-            )
+            if let source = externalFrameSourceRGB24 {
+                guard let data = source() else { return } // Plex mode but no frame yet — skip
+                rgb = data
+            } else if let source = externalFrameSource {
+                guard let frame = source() else { return }
+                rgb = convertToRGB24(
+                    image: frame, outW: outW, outH: fieldH,
+                    cropX: cropX, cropY: cropY, cropW: cropW, cropH: cropH,
+                    rotation: rotation
+                )
+            } else {
+                guard let frame = CGDisplayCreateImage(displayID) else { return }
+                rgb = convertToRGB24(
+                    image: frame, outW: outW, outH: fieldH,
+                    cropX: cropX, cropY: cropY, cropW: cropW, cropH: cropH,
+                    rotation: rotation
+                )
+            }
             guard rgb.count == outW * fieldH * 3 else { return }
             fieldData = rgb
             field = 0
@@ -250,27 +364,14 @@ final class StreamEngine: NSObject, @unchecked Sendable {
             compressedSize: nil,
             isDelta: false
         )
+
+        // Wire lock prevents audio timer from sending CMD_AUDIO mid-blit
+        wireLock.lock()
         connection.sendFrame(header: header, payload: fieldData)
+        wireLock.unlock()
 
-        // Send pending audio after frame
-        if audioEnabled {
-            audioLock.lock()
-            let audio = pendingAudio
-            pendingAudio = nil
-            audioLock.unlock()
-
-            if let audio, !audio.isEmpty {
-                let size = min(Int(UInt16.max), audio.count)
-                let audioHeader = GroovyProtocol.buildAudio(size: UInt16(size))
-                connection.sendFrame(header: audioHeader, payload: audio.prefix(size))
-            }
-        }
-
-        if frameCount <= 5 || frameCount % 600 == 0 {
-            let c = frameCount
-            DispatchQueue.main.async { [weak self] in
-                self?.appState.log("Frame \(c) (\(fieldData.count)B, field=\(field))")
-            }
+        if frameCount == 5 || frameCount % 1800 == 0 {
+            NSLog("Frame %d (%dB, field=%d)", frameCount, fieldData.count, field)
         }
     }
 
@@ -280,6 +381,8 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         isRunning = false
         captureTimer?.cancel()
         captureTimer = nil
+        audioSendTimer?.cancel()
+        audioSendTimer = nil
 
         if let stream = scStream {
             try? await stream.stopCapture()
@@ -306,6 +409,8 @@ final class StreamEngine: NSObject, @unchecked Sendable {
         isRunning = false
         captureTimer?.cancel()
         captureTimer = nil
+        audioSendTimer?.cancel()
+        audioSendTimer = nil
 
         if let conn = connection {
             let closePacket = GroovyProtocol.buildClose()
@@ -396,20 +501,31 @@ extension StreamEngine: SCStreamOutput {
         if !audioFormatLogged {
             audioFormatLogged = true
             let fmt = AudioCapture.describeFormat(sampleBuffer)
-            DispatchQueue.main.async { [weak self] in
-                self?.appState.log("Audio format: \(fmt)")
-            }
+            NSLog("Audio format: %@", fmt)
         }
 
         guard let pcm = AudioCapture.convertToInt16PCM(sampleBuffer) else { return }
 
+        audioSamplesReceived += 1
+        audioLastCallbackTime = mach_absolute_time()
+
         audioLock.lock()
-        if let existing = pendingAudio {
-            pendingAudio = existing + pcm
-        } else {
-            pendingAudio = pcm
+        // Cap buffer to prevent unbounded growth if video is slow
+        if pendingAudio.count < maxAudioBuffer {
+            pendingAudio.append(pcm)
         }
         audioLock.unlock()
+    }
+}
+
+// MARK: - SCStreamDelegate (Error handling + auto-restart)
+
+extension StreamEngine: SCStreamDelegate {
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        DispatchQueue.main.async { [weak self] in
+            self?.appState.logError("Audio stream stopped: \(error.localizedDescription)")
+        }
+        restartAudioCapture()
     }
 }
 

@@ -2,11 +2,45 @@ import SwiftUI
 
 struct CaptureTab: View {
     @Environment(AppState.self) private var appState
+    @State private var showDesktopInfo = false
+
+    private var plexActive: Bool {
+        appState.settings.plexEnabled
+    }
 
     var body: some View {
         @Bindable var state = appState
 
         VStack(spacing: 0) {
+            // Info line
+            HStack(spacing: 4) {
+                Button(action: { showDesktopInfo = true }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showDesktopInfo, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Desktop Streaming")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Captures the selected display and streams it to your MiSTer FPGA in real-time. Audio is captured and sent alongside video.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(16)
+                    .frame(width: 260)
+                }
+
+                Text("Streams Display \(appState.settings.displayIndex + 1) to MiSTer")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
             VStack(spacing: 12) {
                 SettingsRow("Display") {
                     Picker("", selection: $state.settings.displayIndex) {
@@ -15,7 +49,7 @@ struct CaptureTab: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 180)
+                    .frame(maxWidth: 180, alignment: .leading)
                 }
 
                 SettingsRow("Crop") {
@@ -25,7 +59,7 @@ struct CaptureTab: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 180)
+                    .frame(maxWidth: 180, alignment: .leading)
                     .onChange(of: appState.settings.cropMode) { _, _ in
                         appState.updateCropForMode()
                     }
@@ -38,7 +72,7 @@ struct CaptureTab: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 180)
+                    .frame(maxWidth: 180, alignment: .leading)
                     .onChange(of: appState.settings.alignment) { _, _ in
                         appState.updateCropForMode()
                     }
@@ -51,7 +85,22 @@ struct CaptureTab: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 180)
+                    .frame(maxWidth: 180, alignment: .leading)
+                }
+
+                SettingsRow("Preview") {
+                    Toggle("", isOn: Binding(
+                        get: { appState.isPreviewing },
+                        set: { newValue in
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                if newValue { appState.startPreview() }
+                                else { appState.stopPreview() }
+                            }
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
                 }
 
                 if appState.settings.cropMode == .custom {
@@ -80,6 +129,21 @@ struct CaptureTab: View {
 
             Spacer()
 
+            // Status indicator
+            if appState.isStreaming && appState.plexController == nil {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 6, height: 6)
+                        .shadow(color: .green.opacity(0.6), radius: 4)
+                    Text("Streaming to \(appState.settings.targetIP)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
             // Preview area
             if appState.isPreviewing {
                 if let image = appState.previewImage {
@@ -106,35 +170,45 @@ struct CaptureTab: View {
                 }
             }
 
-            // Preview button
+            // Stream Desktop button
             Button(action: {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    if appState.isPreviewing {
-                        appState.stopPreview()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if appState.isStreaming && appState.plexController == nil {
+                        appState.stopStreaming()
                     } else {
-                        appState.startPreview()
+                        // Stop Plex if active
+                        if appState.plexController != nil {
+                            appState.stopPlexReceiver()
+                            appState.settings.plexEnabled = false
+                            appState.settings.save()
+                        }
+                        if appState.isStreaming { appState.stopStreaming() }
+                        appState.settings.save()
+                        appState.startStreaming()
                     }
                 }
             }) {
                 HStack(spacing: 6) {
-                    Image(systemName: appState.isPreviewing ? "eye.slash.fill" : "eye.fill")
+                    Image(systemName: (appState.isStreaming && appState.plexController == nil) ? "stop.fill" : "play.fill")
                         .font(.system(size: 10))
-                    Text(appState.isPreviewing ? "Stop Preview" : "Start Preview")
+                    Text((appState.isStreaming && appState.plexController == nil) ? "Stop Streaming" : "Stream Desktop")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)
-                .foregroundStyle(appState.isPreviewing ? .white : .primary)
+                .foregroundStyle(.white)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .glassButton(
-                tint: appState.isPreviewing ? .orange : nil,
+                tint: (appState.isStreaming && appState.plexController == nil) ? .red : .accentColor,
                 interactive: true,
                 shape: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
+            .disabled(plexActive)
+            .opacity(plexActive ? 0.4 : 1.0)
             .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+            .padding(.bottom, 16)
         }
     }
 }

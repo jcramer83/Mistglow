@@ -1,55 +1,48 @@
 import SwiftUI
 
 enum AppTab: Int, CaseIterable {
-    case stream, capture, log
+    case settings, plex, capture, debug
 
     var title: String {
         switch self {
-        case .stream: "Stream"
-        case .capture: "Capture"
-        case .log: "Log"
+        case .settings: "Settings"
+        case .plex: "Plex"
+        case .capture: "Desktop"
+        case .debug: "Debug"
         }
     }
 
     var icon: String {
         switch self {
-        case .stream: "antenna.radiowaves.left.and.right"
+        case .settings: "gear"
+        case .plex: "play.tv"
         case .capture: "display"
-        case .log: "doc.text"
+        case .debug: "wrench.and.screwdriver"
         }
     }
 }
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var selectedTab: AppTab = .stream
+    @State private var selectedTab: AppTab = .settings
 
     var body: some View {
         VStack(spacing: 0) {
-            // Drag area + Title
-            VStack(spacing: 0) {
-                Color.clear.frame(height: 8)
-
-                Text("Mistglow")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.8))
-                    .padding(.bottom, 8)
-
-                // Tab bar
-                GlassContainer(spacing: 8) {
-                    HStack(spacing: 4) {
-                        ForEach(AppTab.allCases, id: \.self) { tab in
-                            TabButton(tab: tab, isSelected: selectedTab == tab) {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    selectedTab = tab
-                                }
+            // Tab bar
+            GlassContainer(spacing: 8) {
+                HStack(spacing: 4) {
+                    ForEach(AppTab.allCases, id: \.self) { tab in
+                        TabButton(tab: tab, isSelected: selectedTab == tab) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedTab = tab
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+            .padding(.bottom, 10)
 
             // Separator
             Rectangle()
@@ -59,38 +52,38 @@ struct ContentView: View {
             // Tab content with crossfade
             ZStack {
                 switch selectedTab {
-                case .stream:
+                case .settings:
                     StreamTab()
+                        .transition(.opacity)
+                case .plex:
+                    PlexTab()
                         .transition(.opacity)
                 case .capture:
                     CaptureTab()
                         .transition(.opacity)
-                case .log:
-                    LogTab()
+                case .debug:
+                    DebugTab()
                         .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(.easeInOut(duration: 0.15), value: selectedTab)
         }
-        .frame(width: 400, height: 380)
+        .frame(width: 400, height: 420)
         .background(VisualEffectBackground())
         .background(WindowAccessor())
         .task {
             appState.initialize()
             await appState.refreshDisplays()
         }
-        .onAppear {
-            AppDelegate.shared?.appState = appState
-        }
         .onChange(of: appState.settings.targetIP) { _, _ in appState.settings.save() }
         .onChange(of: appState.selectedPresetIndex) { _, _ in appState.settings.save() }
         .onChange(of: appState.settings.modeline.interlace) { _, _ in appState.settings.save() }
-        .onChange(of: appState.settings.audioEnabled) { _, _ in appState.settings.save() }
         .onChange(of: appState.settings.displayIndex) { _, _ in appState.settings.save() }
         .onChange(of: appState.settings.cropMode) { _, _ in appState.settings.save() }
         .onChange(of: appState.settings.alignment) { _, _ in appState.settings.save() }
         .onChange(of: appState.settings.rotation) { _, _ in appState.settings.save() }
+        .onChange(of: appState.settings.plexEnabled) { _, _ in appState.settings.save() }
     }
 }
 
@@ -112,7 +105,7 @@ struct TabButton: View {
                 Text(tab.title)
                     .font(.system(size: 10, weight: isSelected ? .medium : .regular))
             }
-            .frame(width: 72, height: 46)
+            .frame(width: 58, height: 46)
             .foregroundStyle(isSelected ? .white : (isHovered ? .primary : .secondary))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -134,15 +127,10 @@ struct TabButton: View {
 
 // MARK: - Visual Effect Background
 
-struct VisualEffectBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .titlebar
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
+struct VisualEffectBackground: View {
+    var body: some View {
+        Color(nsColor: NSColor(white: 0.18, alpha: 1.0))
     }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 // MARK: - Window Configuration
@@ -152,19 +140,30 @@ struct WindowAccessor: NSViewRepresentable {
         let view = NSView()
         DispatchQueue.main.async {
             guard let window = view.window else { return }
-            window.isOpaque = false
-            window.backgroundColor = .clear
+            window.backgroundColor = NSColor(white: 0.18, alpha: 1.0)
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
-            window.styleMask.insert(.fullSizeContentView)
             window.styleMask.remove(.resizable)
             window.isMovableByWindowBackground = true
-            window.hasShadow = true
-            if let contentView = window.contentView {
-                contentView.wantsLayer = true
-                contentView.layer?.cornerRadius = 14
-                contentView.layer?.masksToBounds = true
-            }
+
+            // Add centered title label in the titlebar
+            let titleLabel = NSTextField(labelWithString: "Mistglow")
+            titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+            titleLabel.textColor = NSColor.white.withAlphaComponent(0.85)
+            titleLabel.alignment = .left
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+            let titleContainer = NSView()
+            titleContainer.addSubview(titleLabel)
+            NSLayoutConstraint.activate([
+                titleLabel.leadingAnchor.constraint(equalTo: titleContainer.leadingAnchor, constant: 8),
+                titleLabel.centerYAnchor.constraint(equalTo: titleContainer.centerYAnchor),
+            ])
+
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.view = titleContainer
+            accessory.layoutAttribute = .top
+            window.addTitlebarAccessoryViewController(accessory)
         }
         return view
     }

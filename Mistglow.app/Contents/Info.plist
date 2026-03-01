@@ -22,6 +22,11 @@
     <string>Mistglow needs screen capture access to stream your display to MiSTer FPGA.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Mistglow needs audio access to stream system audio to MiSTer FPGA.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>CFBundleIconFile</key>

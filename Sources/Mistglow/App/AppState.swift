@@ -42,7 +42,7 @@ final class AppState {
     var previewImage: CGImage?
     var availableDisplays: [SCDisplay] = []
     var cgDisplayIDs: [CGDirectDisplayID] = []
-    var selectedPresetIndex: Int = 1 // 320x240 NTSC (progressive)
+    var selectedPresetIndex: Int = 3 // 640x480i NTSC
     var needsScreenRecording = false
 
     var displayCount: Int {
@@ -52,6 +52,7 @@ final class AppState {
 
     var streamEngine: StreamEngine?
     var previewCapture: PreviewCapture?
+    var plexController: PlexPlaybackController?
 
     func log(_ message: String) {
         logEntries.append(LogEntry(message))
@@ -181,10 +182,29 @@ final class AppState {
         }
     }
 
+    func startPlexReceiver() {
+        guard plexController == nil else { return }
+        let controller = PlexPlaybackController(appState: self)
+        self.plexController = controller
+        controller.enable()
+    }
+
+    func stopPlexReceiver() {
+        plexController?.disable()
+        plexController = nil
+    }
+
     func initialize() {
+        // Kill any orphaned FFmpeg processes from previous app sessions
+        PlexAVPlayerRenderer.killOrphanedFFmpeg()
+
         // Apply crop mode on startup
         if settings.cropMode != .custom {
             updateCropForMode()
+        }
+        // Auto-start Plex receiver if enabled
+        if settings.plexEnabled {
+            startPlexReceiver()
         }
     }
 

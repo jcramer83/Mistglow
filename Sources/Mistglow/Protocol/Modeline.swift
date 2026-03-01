@@ -32,5 +32,5 @@ struct Modeline: Codable, Equatable, Hashable, Identifiable {
         Modeline(name: "720x576i PAL",  pClock: 13.875, hActive: 720, hBegin: 741, hEnd: 806, hTotal: 888, vActive: 576, vBegin: 581, vEnd: 586, vTotal: 625, interlace: true),
     ]
 
-    static let defaultPreset = presets[1] // 320x240 NTSC
+    static let defaultPreset = presets[3] // 640x480i NTSC
 }

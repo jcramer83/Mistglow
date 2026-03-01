@@ -5,6 +5,12 @@ struct StreamTab: View {
     @State private var showHelp = false
     @State private var showPermissions = false
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
     var body: some View {
         @Bindable var state = appState
 
@@ -24,26 +30,13 @@ struct StreamTab: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 180)
+                    .frame(maxWidth: 180, alignment: .leading)
                     .onChange(of: appState.selectedPresetIndex) { _, newValue in
                         appState.applyPreset(newValue)
                         appState.updateCropForMode()
                     }
                 }
 
-                SettingsRow("Interlaced") {
-                    Toggle("", isOn: $state.settings.modeline.interlace)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                }
-
-                SettingsRow("Audio") {
-                    Toggle("", isOn: $state.settings.audioEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -76,73 +69,63 @@ struct StreamTab: View {
                 .padding(.top, 4)
             }
 
-            Spacer()
+            // Log (newest first, fills remaining space)
+            VStack(spacing: 0) {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    Text("Log")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
 
-            // Status indicator
-            if appState.isStreaming {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 6, height: 6)
-                        .shadow(color: .green.opacity(0.6), radius: 4)
-                    Text("Streaming to \(appState.settings.targetIP)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
+                    Spacer()
 
-            // Stream button
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if appState.isStreaming {
-                        appState.stopStreaming()
-                    } else {
-                        appState.settings.save()
-                        appState.startStreaming()
+                    HoverButton(icon: "doc.on.doc", label: nil) {
+                        let text = appState.logEntries.map {
+                            "\(Self.timeFormatter.string(from: $0.timestamp)) \($0.message)"
+                        }.joined(separator: "\n")
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
                     }
+                    .help("Copy Log")
+
+                    HoverButton(icon: "trash", label: nil) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appState.logEntries.removeAll()
+                        }
+                    }
+                    .help("Clear Log")
                 }
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: appState.isStreaming ? "stop.fill" : "play.fill")
-                        .font(.system(size: 10))
-                    Text(appState.isStreaming ? "Stop Streaming" : "Start Streaming")
-                        .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 4)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(appState.logEntries.reversed()) { entry in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text(Self.timeFormatter.string(from: entry.timestamp))
+                                    .foregroundStyle(.tertiary)
+                                Text(entry.message)
+                                    .foregroundStyle(entry.isError ? .red : .primary.opacity(0.7))
+                                    .textSelection(.enabled)
+                            }
+                            .font(.system(size: 9, design: .monospaced))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 34)
-                .foregroundStyle(.white)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .glassButton(
-                tint: appState.isStreaming ? .red : .accentColor,
-                interactive: true,
-                shape: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .background(Color.black.opacity(0.25))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
             )
-            .padding(.horizontal, 20)
-
-            // Bottom toolbar
-            HStack {
-                HoverButton(icon: "info.circle", label: "Permissions") {
-                    showPermissions = true
-                }
-                .popover(isPresented: $showPermissions, arrowEdge: .top) {
-                    PermissionsInfoView()
-                }
-
-                Spacer()
-
-                HoverButton(icon: "questionmark.circle", label: "Help") {
-                    showHelp = true
-                }
-                .sheet(isPresented: $showHelp) {
-                    HelpView()
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
             .padding(.bottom, 12)
         }
     }
