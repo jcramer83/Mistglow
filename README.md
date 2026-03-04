@@ -26,7 +26,7 @@ Thank you to psakhis, iequalshane, and sonic74 for making this possible and shar
 
 ## Streaming Options
 
-Mistglow offers two ways to stream content to your MiSTer:
+Mistglow offers three ways to stream content to your MiSTer:
 
 ### 1. Desktop Streaming
 
@@ -51,6 +51,16 @@ Cast movies and TV shows from your Plex library directly to MiSTer. Mistglow app
 Plex streaming includes full playback controls (play/pause, seek, skip), episode queue with auto-play next, and thumbnail art display.
 
 > **Note:** Plex Web is currently the most reliable way to discover the MiSTer cast target. iOS and other Plex apps may not always find it depending on your network configuration.
+
+### 3. Web Streaming (Beta)
+
+Stream any web page directly to your MiSTer. Enter a URL in the Web tab and Mistglow renders it in an off-screen browser at the target modeline resolution, streaming both video and audio.
+
+- Renders at native modeline resolution (e.g., 320x240)
+- Audio captured from the web page and streamed alongside video
+- Great for weather displays, dashboards, retro web content, and more
+
+> **Note:** Web streaming is currently in beta. Some sites may not render or behave as expected.
 
 ## Features
 
