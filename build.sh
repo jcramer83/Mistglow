@@ -22,9 +22,8 @@ cp .build/debug/Mistglow /Applications/Mistglow.app/Contents/MacOS/Mistglow
 cp Mistglow.app/Contents/Info.plist /Applications/Mistglow.app/Contents/Info.plist
 cp -R Mistglow.app/Contents/Resources/ /Applications/Mistglow.app/Contents/Resources/ 2>/dev/null || true
 
-# Unlock the signing keychain (no password) and sign
-security unlock-keychain -p "" ~/Library/Keychains/MiSTerCastDev.keychain-db 2>/dev/null
-codesign --force --sign "MiSTerCast Dev" --keychain ~/Library/Keychains/MiSTerCastDev.keychain-db --entitlements Mistglow.entitlements --deep /Applications/Mistglow.app 2>&1
+# Ad-hoc code sign
+codesign --force --sign - --entitlements Mistglow.entitlements --deep /Applications/Mistglow.app 2>&1
 
 echo "Build complete. Launching..."
 open /Applications/Mistglow.app

@@ -65,6 +65,16 @@ Plex streaming includes full playback controls (play/pause, seek, skip), episode
 - Auto-play next episode in Plex queues
 - Auto-saving settings
 
+## Download & Install
+
+1. Download `Mistglow-macOS-universal.zip` from the [latest release](https://github.com/jcramer83/Mistglow/releases/latest)
+2. Unzip and move `Mistglow.app` to `/Applications`
+3. Remove the macOS quarantine flag (required for ad-hoc signed apps):
+   ```bash
+   xattr -cr /Applications/Mistglow.app
+   ```
+4. Open Mistglow from `/Applications`
+
 ## Requirements
 
 ### On your Mac
@@ -166,13 +176,22 @@ swift build
 
 ### Creating an App Bundle
 
-The `build.sh` script handles building, code signing, and installing to `/Applications`. You'll need to set up your own code signing identity:
+The `build.sh` script handles building, ad-hoc code signing, and installing to `/Applications`:
 
 ```bash
-# Edit build.sh to use your signing identity, then:
 chmod +x build.sh
 ./build.sh
 ```
+
+### Troubleshooting: "damaged or incomplete" error
+
+If macOS shows **"You can't open the application because it may be damaged or incomplete"**, this is caused by Gatekeeper quarantine on downloaded files. Fix it by running:
+
+```bash
+xattr -cr /Applications/Mistglow.app
+```
+
+If building from source, make sure you run `build.sh` (which handles signing) rather than just copying the `.app` bundle directly -- the bundle in the repo is a skeleton without a binary.
 
 ## Protocol
 
