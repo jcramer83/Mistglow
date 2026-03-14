@@ -48,6 +48,11 @@ final class PlexPlaybackController {
 
         // Start GDM advertiser
         let advertiser = PlexGDMAdvertiser(resourceIdentifier: resourceId)
+        advertiser.logHandler = { [weak appState] msg in
+            DispatchQueue.main.async {
+                appState?.log(msg)
+            }
+        }
         advertiser.start()
         self.gdmAdvertiser = advertiser
 
@@ -81,6 +86,21 @@ final class PlexPlaybackController {
     }
 
     private var fallbackURL: URL?
+
+    /// Pick the best modeline for detected video dimensions when auto-modeline is enabled.
+    /// Returns nil if no match (falls back to user-selected modeline).
+    private func autoModeline(videoHeight: Int?, videoWidth: Int?) -> Modeline? {
+        guard let h = videoHeight else { return nil }
+        // PAL SD: 576 lines → 720x576i PAL
+        if h == 576 {
+            return Modeline.presets.first { $0.name == "720x576i PAL" }
+        }
+        // NTSC SD: 480 lines → 720x480i NTSC
+        if h == 480 {
+            return Modeline.presets.first { $0.name == "720x480i NTSC" }
+        }
+        return nil
+    }
 
     private func startPlayback(url: URL, title: String, duration: Int, offset: Int, fallback: URL? = nil, audioStreamIndex: Int? = nil) {
         self.fallbackURL = fallback
@@ -413,7 +433,24 @@ extension PlexPlaybackController: PlexCompanionDelegate {
                     }
                 }
 
-                // Start streaming if not already
+                // Auto-select modeline from source video dimensions when enabled
+                if appState.settings.plexAutoModeline,
+                   let detected = self.autoModeline(videoHeight: media.videoHeight, videoWidth: media.videoWidth),
+                   detected != appState.settings.modeline {
+                    appState.settings.modeline = detected
+                    // Find preset index for UI sync
+                    if let idx = Modeline.presets.firstIndex(of: detected) {
+                        appState.selectedPresetIndex = idx
+                    }
+                    appState.settings.save()
+                    appState.log("Plex: Auto-selected modeline \(detected.name) (source: \(media.videoWidth ?? 0)x\(media.videoHeight ?? 0))")
+                    // Restart stream with new modeline dimensions
+                    if appState.isStreaming {
+                        appState.stopStreaming()
+                    }
+                }
+
+                // Start streaming if not already (or restarting for modeline change)
                 if !appState.isStreaming {
                     appState.settings.save()
                     appState.startStreaming()

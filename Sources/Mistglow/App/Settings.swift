@@ -73,6 +73,9 @@ struct AppSettings: Codable {
     var cropHeight: Int = 0
     var cropOffsetX: Int = 0
     var cropOffsetY: Int = 0
+    var webURL: String = "https://weatherstar.netbymatt.com/?hazards-checkbox=true&current-weather-checkbox=true&latest-observations-checkbox=true&hourly-checkbox=true&hourly-graph-checkbox=true&travel-checkbox=true&regional-forecast-checkbox=true&local-forecast-checkbox=true&extended-forecast-checkbox=true&almanac-checkbox=true&spc-outlook-checkbox=true&radar-checkbox=true&settings-wide-checkbox=false&settings-kiosk-checkbox=false&settings-stickyKiosk-checkbox=false&settings-customTextEnable-checkbox=false&settings-speed-select=1.00&settings-scanLineMode-select=auto&settings-units-select=us&txtLocation=53177&settings-customText-string=Cramer&share-link-url=&settings-scanLines-checkbox=false&settings-mediaVolume-select=0.75&latLonQuery=53177&latLon=%7B%22lat%22%3A42.6932%2C%22lon%22%3A-87.9145%7D"
+    var webURLHistory: [String] = []
+    var plexAutoModeline: Bool = false
     var plexEnabled: Bool = false
     var plexResourceIdentifier: String = UUID().uuidString
 

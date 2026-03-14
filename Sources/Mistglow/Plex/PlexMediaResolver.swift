@@ -13,6 +13,8 @@ enum PlexMediaResolver {
         let showTitle: String?    // grandparentTitle (TV show name)
         let seasonNumber: Int?    // parentIndex
         let episodeNumber: Int?   // index
+        let videoHeight: Int?     // source video height from Plex metadata
+        let videoWidth: Int?      // source video width from Plex metadata
 
         var displayTitle: String {
             if let show = showTitle, let s = seasonNumber, let e = episodeNumber {
@@ -117,7 +119,9 @@ enum PlexMediaResolver {
             thumbURL: thumbURL,
             showTitle: result.grandparentTitle,
             seasonNumber: result.parentIndex,
-            episodeNumber: result.episodeIndex
+            episodeNumber: result.episodeIndex,
+            videoHeight: result.videoHeight,
+            videoWidth: result.videoWidth
         )
     }
 
@@ -145,6 +149,8 @@ private class MetadataParser: NSObject, XMLParserDelegate {
     var grandparentTitle: String?
     var parentIndex: Int?
     var episodeIndex: Int?
+    var videoHeight: Int?
+    var videoWidth: Int?
     private var foundPart = false
     // Track audio streams to find the selected/default one
     var audioStreams: [(index: Int, plexID: String, language: String, selected: Bool, isDefault: Bool)] = []
@@ -186,6 +192,13 @@ private class MetadataParser: NSObject, XMLParserDelegate {
             grandparentTitle = attributes["grandparentTitle"]
             if let pi = attributes["parentIndex"] { parentIndex = Int(pi) }
             if let ei = attributes["index"] { episodeIndex = Int(ei) }
+        case "Media":
+            if videoHeight == nil, let h = attributes["height"], let hi = Int(h) {
+                videoHeight = hi
+            }
+            if videoWidth == nil, let w = attributes["width"], let wi = Int(w) {
+                videoWidth = wi
+            }
         case "Part":
             if partKey == nil {
                 partKey = attributes["key"]

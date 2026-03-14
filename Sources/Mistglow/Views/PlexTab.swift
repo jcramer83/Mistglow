@@ -66,7 +66,20 @@ struct PlexTab: View {
                 shape: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .padding(.horizontal, 20)
-            .padding(.bottom, 16)
+            .padding(.bottom, 8)
+
+            // Auto modeline toggle
+            @Bindable var state = appState
+            Toggle("Auto PAL/NTSC modeline", isOn: $state.settings.plexAutoModeline)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+                .onChange(of: appState.settings.plexAutoModeline) { _, _ in
+                    appState.settings.save()
+                }
         }
     }
 

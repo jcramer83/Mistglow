@@ -6,10 +6,15 @@ final class PlexGDMAdvertiser: @unchecked Sendable {
     private var socket: Int32 = -1
     private var readSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "com.mistglow.plex.gdm", qos: .utility)
+    var logHandler: ((String) -> Void)?
 
     init(companionPort: UInt16 = 3005, resourceIdentifier: String) {
         self.companionPort = companionPort
         self.resourceIdentifier = resourceIdentifier
+    }
+
+    private func log(_ msg: String) {
+        logHandler?(msg)
     }
 
     func start() {
@@ -30,7 +35,10 @@ final class PlexGDMAdvertiser: @unchecked Sendable {
     private func setupSocket() {
         // Create UDP socket
         socket = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        guard socket >= 0 else { return }
+        guard socket >= 0 else {
+            log("GDM: Failed to create UDP socket (errno=\(errno))")
+            return
+        }
 
         // Allow address reuse
         var reuse: Int32 = 1
@@ -50,6 +58,7 @@ final class PlexGDMAdvertiser: @unchecked Sendable {
             }
         }
         guard bindResult == 0 else {
+            log("GDM: Failed to bind port 32412 (errno=\(errno)) — is another instance running?")
             Darwin.close(socket)
             socket = -1
             return
@@ -59,7 +68,12 @@ final class PlexGDMAdvertiser: @unchecked Sendable {
         var mreq = ip_mreq()
         mreq.imr_multiaddr.s_addr = inet_addr("239.0.0.250")
         mreq.imr_interface.s_addr = INADDR_ANY.bigEndian
-        setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, socklen_t(MemoryLayout<ip_mreq>.size))
+        let mcastResult = setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, socklen_t(MemoryLayout<ip_mreq>.size))
+        if mcastResult != 0 {
+            log("GDM: Failed to join multicast 239.0.0.250 (errno=\(errno))")
+        }
+
+        log("GDM: Listening on port 32412 (multicast 239.0.0.250)")
 
         // Set up dispatch source for reading
         let source = DispatchSource.makeReadSource(fileDescriptor: socket, queue: queue)
@@ -92,17 +106,25 @@ final class PlexGDMAdvertiser: @unchecked Sendable {
         let message = String(bytes: buffer.prefix(bytesRead), encoding: .utf8) ?? ""
         guard message.contains("M-SEARCH") else { return }
 
+        let senderIP = String(cString: inet_ntoa(senderAddr.sin_addr))
+        log("GDM: M-SEARCH from \(senderIP)")
+
         // Build GDM response
         let response = buildResponse()
         guard let responseData = response.data(using: .utf8) else { return }
 
         // Send response back to the sender
+        var sent = false
         responseData.withUnsafeBytes { ptr in
             withUnsafeMutablePointer(to: &senderAddr) { addrPtr in
                 addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                    _ = sendto(socket, ptr.baseAddress!, responseData.count, 0, sockPtr, senderLen)
+                    let result = sendto(socket, ptr.baseAddress!, responseData.count, 0, sockPtr, senderLen)
+                    sent = result >= 0
                 }
             }
+        }
+        if !sent {
+            log("GDM: Failed to send response to \(senderIP) (errno=\(errno))")
         }
     }
 

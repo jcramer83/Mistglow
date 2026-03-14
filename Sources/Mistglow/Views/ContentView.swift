@@ -1,12 +1,13 @@
 import SwiftUI
 
 enum AppTab: Int, CaseIterable {
-    case settings, plex, capture, debug
+    case settings, plex, web, capture, debug
 
     var title: String {
         switch self {
         case .settings: "Settings"
         case .plex: "Plex"
+        case .web: "Web"
         case .capture: "Desktop"
         case .debug: "Debug"
         }
@@ -16,6 +17,7 @@ enum AppTab: Int, CaseIterable {
         switch self {
         case .settings: "gear"
         case .plex: "play.tv"
+        case .web: "globe"
         case .capture: "display"
         case .debug: "wrench.and.screwdriver"
         }
@@ -58,6 +60,9 @@ struct ContentView: View {
                 case .plex:
                     PlexTab()
                         .transition(.opacity)
+                case .web:
+                    WebTab()
+                        .transition(.opacity)
                 case .capture:
                     CaptureTab()
                         .transition(.opacity)
@@ -72,6 +77,7 @@ struct ContentView: View {
         .frame(width: 400, height: 420)
         .background(VisualEffectBackground())
         .background(WindowAccessor())
+        .preferredColorScheme(.dark)
         .task {
             appState.initialize()
             await appState.refreshDisplays()
@@ -105,7 +111,7 @@ struct TabButton: View {
                 Text(tab.title)
                     .font(.system(size: 10, weight: isSelected ? .medium : .regular))
             }
-            .frame(width: 58, height: 46)
+            .frame(width: 52, height: 46)
             .foregroundStyle(isSelected ? .white : (isHovered ? .primary : .secondary))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }

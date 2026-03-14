@@ -36,6 +36,12 @@ final class StreamEngine: NSObject, @unchecked Sendable {
     // Interlaced: cache fields from one capture
     private var cachedField1: Data?
 
+    /// When true, capture system audio even with an external frame source (for Web streaming).
+    var captureSystemAudio = false
+
+    /// When true, include the app's own audio output in SCK capture (for WKWebView audio).
+    var includeOwnAudio = false
+
     /// External frame source (e.g. Plex FFmpeg). Returns raw RGB24 data at target resolution.
     /// When set, used instead of CGDisplayCreateImage — bypasses crop/scale/rotation.
     var externalFrameSourceRGB24: (() -> Data?)?
@@ -104,7 +110,8 @@ final class StreamEngine: NSObject, @unchecked Sendable {
 
         // Start audio capture via ScreenCaptureKit if enabled
         // Skip when external frame source is set (Plex feeds audio directly via feedExternalAudio)
-        if audioEnabled && externalFrameSourceRGB24 == nil {
+        // Unless captureSystemAudio is set (Web streaming needs SCK for WKWebView audio)
+        if audioEnabled && (externalFrameSourceRGB24 == nil || captureSystemAudio) {
             await startAudioCapture(displayIndex: settings.displayIndex)
         }
 
@@ -217,7 +224,7 @@ final class StreamEngine: NSObject, @unchecked Sendable {
             config.capturesAudio = true
             config.sampleRate = 48000
             config.channelCount = 2
-            config.excludesCurrentProcessAudio = true
+            config.excludesCurrentProcessAudio = !includeOwnAudio
 
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: audioQueue)

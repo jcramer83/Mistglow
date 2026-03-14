@@ -53,6 +53,7 @@ final class AppState {
     var streamEngine: StreamEngine?
     var previewCapture: PreviewCapture?
     var plexController: PlexPlaybackController?
+    var webController: WebStreamController?
 
     private static let maxLogEntries = 2000
 
